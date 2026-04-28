@@ -74,9 +74,10 @@ export interface Message {
 }
 
 export interface DatasetInfo {
-  sessionId: string;
   filename: string;
   columns: string[];
   rows: number;
   sample: Record<string, any>[];
+  schema: string;
+  rawData: Record<string, any>[];
 }

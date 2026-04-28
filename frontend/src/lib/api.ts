@@ -19,23 +19,28 @@ export async function uploadFile(file: File): Promise<DatasetInfo> {
   const data = await res.json();
 
   return {
-    sessionId: data.session_id,
     filename: data.filename,
     columns: data.columns,
     rows: data.rows,
     sample: data.sample,
+    schema: JSON.stringify(data.schema),
+    rawData: data.raw_data,
   };
 }
 
 export async function sendMessage(
   message: string,
-  sessionId: string,
+  dataset: DatasetInfo,
   onEvent: (event: SSEEvent) => void
 ): Promise<void> {
+  const formData = new FormData();
+  formData.append("message", message);
+  formData.append("csv_data", JSON.stringify(dataset.rawData));
+  formData.append("schema", dataset.schema);
+
   const res = await fetch(`${API_URL}/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, session_id: sessionId }),
+    body: formData,
   });
 
   if (!res.ok) {
@@ -70,7 +75,6 @@ export async function sendMessage(
           const event: SSEEvent = JSON.parse(jsonStr);
           onEvent(event);
 
-          // Stop reading as soon as we get the done signal
           if (event.type === "done" || event.type === "error") {
             reader.cancel();
             return;
@@ -81,7 +85,6 @@ export async function sendMessage(
       }
     }
 
-    // Process any remaining buffer
     if (buffer.trim().startsWith("data: ")) {
       try {
         const event: SSEEvent = JSON.parse(buffer.trim().slice(6));

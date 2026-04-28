@@ -2,16 +2,14 @@ import os
 import json
 import uuid
 import asyncio
-from typing import Dict, Any
-from io import StringIO
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from dotenv import load_dotenv
 import pandas as pd
+from io import StringIO
 
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -20,16 +18,7 @@ from google.genai import types
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 load_dotenv()
 
-data_store: Dict[str, Dict[str, Any]] = {}
-session_service = InMemorySessionService()
-
 from agents.orchestrator import root_agent
-
-runner = Runner(
-    agent=root_agent,
-    app_name="data_analyzer",
-    session_service=session_service,
-)
 
 app = FastAPI(title="Multi-Agent Data Analyzer")
 
@@ -42,11 +31,6 @@ app.add_middleware(
 )
 
 
-class ChatRequest(BaseModel):
-    message: str
-    session_id: str
-
-
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -54,9 +38,8 @@ async def health():
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    session_id = str(uuid.uuid4())
+    """Parse CSV and return schema info. No server-side state stored."""
     content = await file.read()
-
     try:
         df = pd.read_csv(StringIO(content.decode("utf-8")))
     except Exception as e:
@@ -69,51 +52,60 @@ async def upload_file(file: UploadFile = File(...)):
         "sample_rows": df.head(3).to_dict(orient="records"),
     }
 
-    data_store[session_id] = {
+    return {
         "filename": file.filename,
+        "columns": schema_info["columns"],
+        "rows": schema_info["shape"][0],
+        "sample": schema_info["sample_rows"],
         "schema": schema_info,
         "raw_data": df.to_dict(orient="records"),
     }
+
+
+@app.post("/chat")
+async def chat(
+    message: str = Form(...),
+    csv_data: str = Form(...),
+    schema: str = Form(...),
+):
+    """Stateless chat: receives data + question each time, runs full pipeline."""
+    session_id = str(uuid.uuid4())
+
+    try:
+        raw_data = json.loads(csv_data)
+        data_schema = schema
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid data: {str(e)}")
+
+    session_service = InMemorySessionService()
+    runner = Runner(
+        agent=root_agent,
+        app_name="data_analyzer",
+        session_service=session_service,
+    )
 
     await session_service.create_session(
         app_name="data_analyzer",
         user_id="user",
         session_id=session_id,
         state={
-            "data_schema": json.dumps(schema_info, indent=2),
-            "raw_data": df.to_dict(orient="records"),
+            "data_schema": data_schema,
+            "raw_data": raw_data,
         },
     )
-
-    return {
-        "session_id": session_id,
-        "filename": file.filename,
-        "columns": schema_info["columns"],
-        "rows": schema_info["shape"][0],
-        "sample": schema_info["sample_rows"],
-    }
-
-
-@app.post("/chat")
-async def chat(request: ChatRequest):
-    if request.session_id not in data_store:
-        raise HTTPException(
-            status_code=404,
-            detail="Session not found. Please upload data first.",
-        )
 
     async def event_stream():
         try:
             content = types.Content(
                 role="user",
-                parts=[types.Part(text=request.message)],
+                parts=[types.Part(text=message)],
             )
 
             current_agent = None
 
             async for event in runner.run_async(
                 user_id="user",
-                session_id=request.session_id,
+                session_id=session_id,
                 new_message=content,
             ):
                 author = getattr(event, "author", None)
@@ -126,18 +118,14 @@ async def chat(request: ChatRequest):
                     continue
 
                 for part in event_content.parts:
-                    # Handle function calls (tool invocations) - skip them
                     if hasattr(part, "function_call") and part.function_call:
                         continue
-                    # Handle function responses (tool results)
                     if hasattr(part, "function_response") and part.function_response:
                         resp = part.function_response
                         result = getattr(resp, "response", None)
-                        if result and isinstance(result, dict):
-                            status = result.get("status", "")
-                            if status == "error":
-                                err_msg = result.get("message", "Unknown error")
-                                yield f"data: {json.dumps({'type': 'agent_output', 'agent': current_agent, 'content': f'Error: {err_msg}'})}\n\n"
+                        if result and isinstance(result, dict) and result.get("status") == "error":
+                            err_msg = result.get("message", "Unknown error")
+                            yield f"data: {json.dumps({'type': 'agent_output', 'agent': current_agent, 'content': f'Error: {err_msg}'})}\n\n"
                         continue
 
                     text = getattr(part, "text", None)
@@ -146,7 +134,6 @@ async def chat(request: ChatRequest):
 
                     text = text.strip()
 
-                    # Route based on which agent produced the output
                     if current_agent == "visualizer":
                         try:
                             chart_data = json.loads(text)

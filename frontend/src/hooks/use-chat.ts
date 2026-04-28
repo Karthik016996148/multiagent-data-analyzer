@@ -63,7 +63,7 @@ export function useChat() {
       setMessages((prev) => [...prev, userMsg]);
 
       try {
-        await apiSend(message, dataset.sessionId, (event: SSEEvent) => {
+        await apiSend(message, dataset, (event: SSEEvent) => {
           if (abortRef.current) return;
 
           switch (event.type) {
