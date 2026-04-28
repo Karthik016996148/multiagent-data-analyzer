@@ -6,14 +6,21 @@ export async function uploadFile(file: File): Promise<DatasetInfo> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(`${API_URL}/upload`, {
-    method: "POST",
-    body: formData,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/upload`, {
+      method: "POST",
+      body: formData,
+    });
+  } catch {
+    throw new Error(
+      "Cannot connect to the analysis server. Please check that the backend is running."
+    );
+  }
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err || "Upload failed");
+    const err = await res.text().catch(() => "Upload failed");
+    throw new Error(err);
   }
 
   const data = await res.json();
@@ -38,14 +45,21 @@ export async function sendMessage(
   formData.append("csv_data", JSON.stringify(dataset.rawData));
   formData.append("schema", dataset.schema);
 
-  const res = await fetch(`${API_URL}/chat`, {
-    method: "POST",
-    body: formData,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/chat`, {
+      method: "POST",
+      body: formData,
+    });
+  } catch {
+    throw new Error(
+      "Cannot connect to the analysis server. Please check that the backend is running."
+    );
+  }
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err || "Chat request failed");
+    const err = await res.text().catch(() => "Chat request failed");
+    throw new Error(err);
   }
 
   const reader = res.body?.getReader();

@@ -151,7 +151,6 @@ export function useChat() {
             case "done":
               setActiveAgent(null);
               setIsLoading(false);
-              setAgentHistory([]);
               break;
           }
         });

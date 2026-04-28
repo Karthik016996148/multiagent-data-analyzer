@@ -82,7 +82,11 @@ export function ChatInterface({
     el.style.height = Math.min(el.scrollHeight, 160) + "px";
   };
 
-  const visibleMessages = messages.filter((m) => m.role !== "system" || messages.indexOf(m) === 0);
+  const visibleMessages = messages.filter((m) => {
+    if (m.role === "system" && messages.indexOf(m) !== 0) return false;
+    if (m.type === "agent_start" && !isLoading) return false;
+    return true;
+  });
   const isEmpty = visibleMessages.length <= 1;
 
   return (
@@ -151,7 +155,7 @@ export function ChatInterface({
 
       {/* Agent timeline */}
       <AnimatePresence>
-        {(activeAgent || (agentHistory.length > 0 && isLoading)) && (
+        {agentHistory.length > 0 && (
           <AgentTimeline activeAgent={activeAgent} agentHistory={agentHistory} />
         )}
       </AnimatePresence>

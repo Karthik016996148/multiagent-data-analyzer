@@ -48,7 +48,7 @@ export function Header({ dataset, sidebarOpen, onToggleSidebar }: HeaderProps) {
         )}
 
         <a
-          href="https://github.com"
+          href="https://github.com/Karthik016996148/multiagent-data-analyzer"
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-lg p-1.5 text-zinc-600 transition-colors hover:bg-white/5 hover:text-white"
